@@ -51,6 +51,18 @@ pub fn analyse_type_semantic(parser: *Parser, curr_node: usize) void {
                     .ast_add, .ast_sub, .ast_mult, .ast_div, .ast_bool_not, .ast_bool_and, .ast_bool_or, .ast_lesser, .ast_lesser_equal, .ast_greater, .ast_greater_equal, .ast_equal_equal => {
                         left_type = ExprTypeTable.table.items[left_node.idx].type;
                     },
+                    .ast_fn_call => {
+                        const function_call_table = FnCallTable.table.items[left_node.idx];
+                        const function_idx = function_call_table.name_node;
+                        var out_idx: u32 = undefined;
+                        if (FnTable.getFunctionIdx(function_idx, parser.source, parser.ast)) |val| {
+                            out_idx = val;
+                        } else |err| {
+                            //TODO: Make proper error message
+                            std.debug.print("[Analyser] Function not found: {s}. Err: {}\n", .{ parser.source[left_node.loc.start..left_node.loc.end], err });
+                        }
+                        left_type = FnTable.table.items[out_idx].return_type;
+                    },
                     else => {
                         unreachable;
                     },
@@ -65,6 +77,18 @@ pub fn analyse_type_semantic(parser: *Parser, curr_node: usize) void {
                     .ast_bool_literal => right_type = .t_bool,
                     .ast_add, .ast_sub, .ast_mult, .ast_div, .ast_bool_not, .ast_bool_and, .ast_bool_or, .ast_lesser, .ast_lesser_equal, .ast_greater, .ast_greater_equal, .ast_equal_equal => {
                         right_type = ExprTypeTable.table.items[right_node.idx].type;
+                    },
+                    .ast_fn_call => {
+                        const function_call_table = FnCallTable.table.items[right_node.idx];
+                        const function_idx = function_call_table.name_node;
+                        var out_idx: u32 = undefined;
+                        if (FnTable.getFunctionIdx(function_idx, parser.source, parser.ast)) |val| {
+                            out_idx = val;
+                        } else |err| {
+                            //TODO: Make proper error message
+                            std.debug.print("[Analyser] Function not found: {s}. Err: {}\n", .{ parser.source[right_node.loc.start..right_node.loc.end], err });
+                        }
+                        right_type = FnTable.table.items[out_idx].return_type;
                     },
                     else => {
                         unreachable;
