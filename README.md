@@ -10,7 +10,7 @@ Write the code in `demo.ul` and do:
 
 ```
 # Zig 0.14.1
-zig build run
+zig build run -- demo.ul
 ```
 
 resulting `out.wasm` will be written, localhost the root, open `index.html` and check Javascript Console.
