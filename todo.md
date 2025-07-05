@@ -21,7 +21,7 @@ print(z/2.0); // this doesn't work (give false negative) ;(
 IDK: Gives this error
 ```
 thread 245479 panic: index out of bounds: index 2143289344, len 0
-/--/--/Khichu/src/wasm/codegen.zig:264:56: 0x10040a6e7 in generateWASMCodeFromAst (UndefinedLanguage)
+/--/--/UndefinedLanguage/src/wasm/codegen.zig:264:56: 0x10040a6e7 in generateWASMCodeFromAst (UndefinedLanguage)
             const expr_type = ExprTypeTable.table.items[ast.nodes.items[node_idx].idx].type;
 ```
 

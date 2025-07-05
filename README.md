@@ -1,12 +1,12 @@
-# Khichu
+# UndefinedLanguage
 
-[Khichu](https://en.wikipedia.org/wiki/Khichu) is experimental programming language that targets WASM. We do our own code-generation from scratch instead of relying on LLVM or similar code-generation technologies.
+UndefinedLanguage is experimental programming language that targets WASM. We do our own code-generation from scratch instead of relying on LLVM or similar code-generation technologies.
 
 This is project done during free time.
 
 ## Compile and Run
 
-Write the code in `demo.k` and do:
+Write the code in `demo.ul` and do:
 
 ```
 # Zig 0.14.1
