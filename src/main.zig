@@ -12,22 +12,39 @@ const analyzer = @import("analyzer.zig");
 
 const wasm_codegen = @import("wasm/codegen.zig");
 
-var gp = std.heap.GeneralPurposeAllocator(.{}){};
+var gp: std.heap.DebugAllocator(.{}) = .init;
 
 pub fn main() !void {
     var allocator = gp.allocator();
     defer _ = gp.deinit();
 
-    const source_name = "demo.k";
+    var source_name: [50]u8 = undefined;
+    var source_name_len: usize = 0;
 
-    var file = try std.fs.cwd().openFile(source_name, .{});
+    {
+        const args = try std.process.argsAlloc(allocator);
+        defer std.process.argsFree(allocator, args);
+
+        if (args.len > 1) {
+            source_name_len = args[1].len;
+            @memcpy(source_name[0..source_name_len], args[1]);
+            // source_name = args[1];
+        } else {
+            std.debug.print("Expected 1 argument as file name. Found none.\n", .{});
+            return error.ExpectedArgumentFoundNone;
+        }
+    }
+
+    std.debug.print("File: {s}\n", .{source_name[0..source_name_len]});
+
+    var file = try std.fs.cwd().openFile(source_name[0..source_name_len], .{});
     defer file.close();
 
     const buffer_size = 10000;
     const source = try file.readToEndAlloc(allocator, buffer_size);
     defer allocator.free(source);
 
-    var tokenizer = Tokenizer.init(allocator, source, source_name);
+    var tokenizer = Tokenizer.init(allocator, source, source_name[0..source_name_len]);
     defer tokenizer.deinit();
 
     tokenizer.tokenize();
@@ -50,6 +67,8 @@ pub fn main() !void {
     defer IfTable.destroyTable();
 
     MultiScopeTable.createTable(allocator);
+    // TODO: What's up with this?
+    try MultiScopeTable.table.ensureTotalCapacity(4);
     defer MultiScopeTable.destroyTable();
 
     var parser = Parser.init(allocator, tokenizer);
