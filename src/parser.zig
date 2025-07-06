@@ -17,7 +17,7 @@ const FnParameterSymbol = tables.FnParameterSymbol;
 const IfSymbol = tables.IfSymbol;
 const IfTable = tables.IfTable;
 const MultiScopeTable = tables.MultiScopeTable;
-const ScopeTable = tables.ScopeTable;
+// const ScopeTable = tables.ScopeTable;
 
 const nan_u32 = 0x7FC00000;
 const nan_u64 = 0x7FF8000000000000;
@@ -302,29 +302,32 @@ pub const Parser = struct {
         return parser.ast.addUnaryNode(.ast_print_stmt, nan_u32, expr_node, loc);
     }
 
-    pub fn block(parser: *Parser, scope: *ScopeTable) void {
+    pub fn block(parser: *Parser, allocator: std.mem.Allocator, scope_idx: usize) !void {
         if (!parser.match(.tok_left_brace)) {
             parser.reportError(parser.peekPrev().loc, "Expected '{{' at end of statement, found '{s}'.\n", .{parser.peekPrev().type.str()}, true);
         }
+
+        var scope = &MultiScopeTable.table.items[scope_idx];
+
         while ((parser.peek().type != .tok_right_brace) and (parser.peek().type != .tok_eof)) {
             switch (parser.peek().type) {
                 .tok_var => {
-                    scope.appendNode(parser.varStatement());
+                    try scope.append(allocator, parser.varStatement());
                 },
                 .tok_print => {
-                    scope.appendNode(parser.printStatement());
+                    try scope.append(allocator, parser.printStatement());
                 },
                 .tok_return => {
-                    scope.appendNode(parser.functionReturn());
+                    try scope.append(allocator, parser.functionReturn());
                 },
                 .tok_if => {
-                    scope.appendNode(parser.ifStatement());
+                    try scope.append(allocator, parser.ifStatement(allocator));
                 },
                 .tok_while => {
-                    scope.appendNode(parser.whileStatement());
+                    try scope.append(allocator, parser.whileStatement(allocator));
                 },
                 else => {
-                    scope.appendNode(parser.expressionStatement());
+                    try scope.append(allocator, parser.expressionStatement());
                 },
             }
         }
@@ -343,7 +346,7 @@ pub const Parser = struct {
         return parser.ast.addUnaryNode(.ast_fn_return, nan_u32, expr_node, loc);
     }
 
-    fn functionBlock(parser: *Parser) u32 {
+    fn functionBlock(parser: *Parser, allocator: std.mem.Allocator) u32 {
         const fn_token = parser.consume();
         const fn_name_token = parser.consume();
         if (fn_name_token.type != .tok_identifier) {
@@ -396,9 +399,10 @@ pub const Parser = struct {
 
         const return_symbol_type: SymbolType = typeTokenToSymbolType(fn_return_type_token);
 
-        const scope_idx = MultiScopeTable.createScope();
-        const scope = &MultiScopeTable.table.items[scope_idx];
-        parser.block(scope);
+        const scope_idx = MultiScopeTable.createScope(allocator);
+        parser.block(allocator, scope_idx) catch |err| {
+            std.debug.print("Unable to create node entry in scope table: {}", .{err});
+        };
 
         const fn_name_node = parser.ast.addLiteralNode(.ast_identifier, nan_u32, fn_name_token.loc);
         const fn_idx = FnTable.appendFunction(.{ .name_node = fn_name_node, .return_type = return_symbol_type, .parameter_start = parameter_start, .parameter_end = parameter_start + parameter_size, .scope_idx = scope_idx });
@@ -406,7 +410,7 @@ pub const Parser = struct {
         return parser.ast.addLiteralNode(.ast_fn_block, fn_idx, loc);
     }
 
-    fn ifStatement(parser: *Parser) u32 {
+    fn ifStatement(parser: *Parser, allocator: std.mem.Allocator) u32 {
         const if_token = parser.consume();
         if (!parser.match(.tok_left_paren)) {
             parser.reportError(parser.peekPrev().loc, "Expected '(' after 'if', found '{s}'.\n", .{parser.peekPrev().type.str()}, true);
@@ -415,15 +419,20 @@ pub const Parser = struct {
         if (!parser.match(.tok_right_paren)) {
             parser.reportError(parser.peekPrev().loc, "Expected ')' after expression, found '{s}'.\n", .{parser.peekPrev().type.str()}, true);
         }
-        const if_scope_idx = MultiScopeTable.createScope();
-        const if_scope = &MultiScopeTable.table.items[if_scope_idx];
-        parser.block(if_scope);
+
+        const if_scope_idx = MultiScopeTable.createScope(allocator);
+
+        parser.block(allocator, if_scope_idx) catch |err| {
+            std.debug.print("Unable to create node entry in scope table: {}", .{err});
+        };
 
         var else_scope_idx: usize = nan_u64;
         if (parser.match(.tok_else)) {
-            else_scope_idx = MultiScopeTable.createScope();
-            const else_scope = &MultiScopeTable.table.items[else_scope_idx];
-            parser.block(else_scope);
+            else_scope_idx = MultiScopeTable.createScope(allocator);
+
+            parser.block(allocator, else_scope_idx) catch |err| {
+                std.debug.print("Unable to create node entry in scope table: {}", .{err});
+            };
         }
         const if_symbol: IfSymbol = .{ .if_scope_idx = if_scope_idx, .else_scope_idx = else_scope_idx };
         const if_idx = IfTable.appendIf(if_symbol);
@@ -431,7 +440,7 @@ pub const Parser = struct {
         return parser.ast.addUnaryNode(.ast_if, if_idx, expr, loc);
     }
 
-    fn whileStatement(parser: *Parser) u32 {
+    fn whileStatement(parser: *Parser, allocator: std.mem.Allocator) u32 {
         const while_token = parser.consume();
         if (!parser.match(.tok_left_paren)) {
             parser.reportError(parser.peekPrev().loc, "Expected '(' after 'while', found '{s}'.\n", .{parser.peekPrev().type.str()}, true);
@@ -440,9 +449,11 @@ pub const Parser = struct {
         if (!parser.match(.tok_right_paren)) {
             parser.reportError(parser.peekPrev().loc, "Expected ')' after expression, found '{s}'.\n", .{parser.peekPrev().type.str()}, true);
         }
-        const while_scope_idx = MultiScopeTable.createScope();
-        const while_scope = &MultiScopeTable.table.items[while_scope_idx];
-        parser.block(while_scope);
+        const while_scope_idx = MultiScopeTable.createScope(allocator);
+
+        parser.block(allocator, while_scope_idx) catch |err| {
+            std.debug.print("Unable to create node entry in scope table: {}", .{err});
+        };
 
         const loc: LocInfo = .{ .start = while_token.loc.start, .end = while_token.loc.end, .line = while_token.loc.line };
         return parser.ast.addUnaryNode(.ast_while, while_scope_idx, expr, loc);
@@ -479,7 +490,7 @@ pub const Parser = struct {
         if (exit) std.process.exit(1);
     }
 
-    pub fn parse(parser: *Parser) void {
+    pub fn parse(parser: *Parser, allocator: std.mem.Allocator) void {
         while (parser.peek().type != .tok_eof) {
             switch (parser.peek().type) {
                 .tok_var => {
@@ -495,7 +506,7 @@ pub const Parser = struct {
                     unreachable;
                 },
                 .tok_fn => {
-                    parser.ast_roots.append(parser.functionBlock()) catch |err| {
+                    parser.ast_roots.append(parser.functionBlock(allocator)) catch |err| {
                         std.debug.print("Unable to append function block ast node to root list: {}", .{err});
                     };
                 },

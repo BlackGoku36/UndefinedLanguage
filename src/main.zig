@@ -66,15 +66,12 @@ pub fn main() !void {
     IfTable.createTable(allocator);
     defer IfTable.destroyTable();
 
-    MultiScopeTable.createTable(allocator);
-    // TODO: What's up with this?
-    try MultiScopeTable.table.ensureTotalCapacity(4);
-    defer MultiScopeTable.destroyTable();
+    defer MultiScopeTable.destroyTable(allocator);
 
     var parser = Parser.init(allocator, tokenizer);
     defer parser.deinit();
 
-    parser.parse();
+    parser.parse(allocator);
     analyzer.analyze(&parser);
 
     std.debug.print("\n------ AST ------\n", .{});

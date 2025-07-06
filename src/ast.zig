@@ -200,14 +200,14 @@ pub const Ast = struct {
                 const if_scope = MultiScopeTable.table.items[if_symbol.if_scope_idx];
                 indent(level + 1);
                 std.debug.print("if_scope {{\n", .{});
-                for (if_scope.table.items) |idx| {
+                for (if_scope.items) |idx| {
                     ast.print_block(idx, left, level + 2);
                 }
                 if (if_symbol.else_scope_idx != nan_u64) {
                     const else_scope = MultiScopeTable.table.items[if_symbol.else_scope_idx];
                     indent(level + 1);
                     std.debug.print("\n}} else_scope {{\n", .{});
-                    for (else_scope.table.items) |idx| {
+                    for (else_scope.items) |idx| {
                         ast.print_block(idx, left, level + 2);
                     }
                 }
@@ -228,7 +228,7 @@ pub const Ast = struct {
                 const while_scope = MultiScopeTable.table.items[while_idx];
                 indent(level + 1);
                 std.debug.print("while_scope {{\n", .{});
-                for (while_scope.table.items) |idx| {
+                for (while_scope.items) |idx| {
                     ast.print_block(idx, left, level + 2);
                 }
                 indent(level + 1);
@@ -251,7 +251,7 @@ pub const Ast = struct {
                     std.debug.print("\nast_fn_block (self_idx: {d}, fn_table_idx: {d}){{\n", .{ root_idx, fn_block_idx });
 
                     const scope = MultiScopeTable.table.items[fn_block.scope_idx];
-                    for (scope.table.items) |idx| {
+                    for (scope.items) |idx| {
                         ast.print_block(idx, 0, 1);
                     }
                     std.debug.print("}}\n", .{});

@@ -211,7 +211,7 @@ pub const FnTable = struct {
             std.debug.print("Return type: {s}\n", .{function.return_type.str()});
             std.debug.print("Scope's nodes: ", .{});
             const scope_table = MultiScopeTable.table.items[function.scope_idx];
-            for (scope_table.table.items) |node_idx| {
+            for (scope_table.items) |node_idx| {
                 std.debug.print("{d}, ", .{node_idx});
             }
             std.debug.print("\n-\n\n", .{});
@@ -256,46 +256,20 @@ pub const IfTable = struct {
     }
 };
 
-pub const ScopeTable = struct {
-    table: std.ArrayList(usize) = undefined,
-
-    pub fn init(allocator: std.mem.Allocator) ScopeTable {
-        return .{
-            .table = std.ArrayList(usize).init(allocator),
-        };
-    }
-
-    pub fn appendNode(scope: *ScopeTable, node: usize) void {
-        scope.table.append(node) catch |err| {
-            std.debug.print("Unable to create node entry in scope table: {}", .{err});
-        };
-    }
-
-    pub fn destroyTable(scope: *const ScopeTable) void {
-        scope.table.deinit();
-    }
-};
-
 pub const MultiScopeTable = struct {
-    pub var table: std.ArrayList(ScopeTable) = undefined;
-    var allocator: std.mem.Allocator = undefined;
+    pub var table: std.ArrayListUnmanaged(std.ArrayListUnmanaged(usize)) = .empty;
 
-    pub fn createTable(allocator_: std.mem.Allocator) void {
-        table = std.ArrayList(ScopeTable).init(allocator_);
-        allocator = allocator_;
-    }
-
-    pub fn createScope() usize {
-        table.append(ScopeTable.init(allocator)) catch |err| {
+    pub fn createScope(allocator: std.mem.Allocator) usize {
+        table.append(allocator, .empty) catch |err| {
             std.debug.print("Unable to create scope entry in multi-scope table: {}", .{err});
         };
         return table.items.len - 1;
     }
 
-    pub fn destroyTable() void {
-        for (table.items) |scope| {
-            scope.destroyTable();
+    pub fn destroyTable(allocator: std.mem.Allocator) void {
+        for (table.items) |*scope| {
+            scope.deinit(allocator);
         }
-        table.deinit();
+        table.deinit(allocator);
     }
 };
