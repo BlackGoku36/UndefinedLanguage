@@ -5,7 +5,7 @@
 
 - Functions: Foreign Function/Variable Interface, to interact with JS without any hardcoding.
 
-- Loops: For loop. Also break and continue of course.
+- Loops: For loop.
 
 ## Bugs in compiler
 
