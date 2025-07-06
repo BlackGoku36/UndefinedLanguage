@@ -1,10 +1,37 @@
+//fn main() void {
+//    var x: int = 0;
+//    while (x < 10){
+//        if(x > 2){
+//            if(x == 5){
+//                break;
+//            }
+//            if(x == 3){
+//                x = x + 1;
+//                continue;
+//            }
+//        }
+//        print(x);
+//        x = x + 1;
+//    }
+//}
+
+//fn main() void {
+//    var x: int = 0;
+//    while (x < 10){
+//        if(x >= 4 && x <= 6){
+//            x = x + 1;
+//            continue;
+//        }
+//        print(x);
+//        x = x + 1;
+//    }
+//}
+
 fn main() void {
     var x: int = 0;
     while (x < 10){
-        print(x);
-        if(x == 5){
-            break;
-        }
         x = x + 1;
+        continue;
     }
+    print(x);
 }

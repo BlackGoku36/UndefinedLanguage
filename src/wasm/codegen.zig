@@ -259,7 +259,7 @@ fn generateWASM(parser: *Parser, source: []u8, fn_: FnSymbol, allocator: std.mem
     var locals: std.ArrayList(Local) = std.ArrayList(Local).init(allocator);
     const scope = MultiScopeTable.table.items[fn_.scope_idx];
     for (scope.items) |node_idx| {
-        try generateWASMCode(&parser.ast, node_idx, source, &bytecode, &locals, fn_, &lv);
+        try generateFnScope(&parser.ast, node_idx, source, &bytecode, &locals, fn_, &lv);
     }
 
     try bytecode.append(@intFromEnum(OpCode.end));
@@ -268,7 +268,8 @@ fn generateWASM(parser: *Parser, source: []u8, fn_: FnSymbol, allocator: std.mem
     return code;
 }
 
-fn generateWASMCodeFromAst(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), fn_symbol: FnSymbol, lv: *VarTable) !void {
+const ExprGenError = error{ OutOfMemory, FunctionNotFound };
+fn generateWASMCodeFromAst(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), fn_symbol: FnSymbol, lv: *VarTable) ExprGenError!void {
     const left_exist = ast.nodes.items[node_idx].left != nan_u32;
     const right_exist = ast.nodes.items[node_idx].right != nan_u32;
 
@@ -426,210 +427,276 @@ fn generateWASMCodeFromAst(ast: *Ast, node_idx: usize, source: []u8, bytecode: *
             // TODO: Add check for identifier not declared
         },
         .ast_assign_stmt => {
-            const left = ast.nodes.items[node_idx].left;
-            const right = ast.nodes.items[node_idx].right;
-            try generateWASMCodeFromAst(ast, right, source, bytecode, fn_symbol, lv);
-            const name: []u8 = source[ast.nodes.items[left].loc.start..ast.nodes.items[left].loc.end];
-            // TODO: Add check for identifier not declared
-
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.local_set));
-            try leb.writeULEB128(bytecode_writer, lv.getByName(name) + offset);
+            try generateAssignStmt(ast, node_idx, source, bytecode, fn_symbol, lv);
         },
         .ast_fn_call => {
-            const current_node_idx = ast.nodes.items[node_idx].idx;
-            const function_call_table = FnCallTable.table.items[current_node_idx];
-            const function_idx = function_call_table.name_node;
-            const out_idx = try FnTable.getFunctionIdx(function_idx, source, ast.*);
-
-            const args = function_call_table.arguments;
-            const args_len = function_call_table.arguments_len;
-            for (0..args_len) |args_idx| {
-                try generateWASMCodeFromAst(ast, args[args_idx], source, bytecode, fn_symbol, lv);
-            }
-
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.call));
-            try leb.writeULEB128(bytecode_writer, out_idx + 2);
+            try generateFnCall(ast, node_idx, source, bytecode, fn_symbol, lv);
         },
         else => {},
     }
 }
 
-pub fn generateWASMCode(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), locals: *std.ArrayList(Local), fn_symbol: FnSymbol, lv: *VarTable) !void {
-    // generateCodeFromAst(ast, node, source, pool);
-    // pool.emitBytecodeOp(.op_return);
+pub fn generateVarStmt(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), locals: *std.ArrayList(Local), fn_symbol: FnSymbol, lv: *VarTable) !void {
+    const bytecode_writer = bytecode.*.writer();
+    const offset = fn_symbol.parameter_end - fn_symbol.parameter_start;
+    const node = ast.nodes.items[node_idx];
+    const symbol_entry = SymbolTable.varTable.get(node.idx);
+    try generateWASMCodeFromAst(ast, symbol_entry.expr_node, source, bytecode, fn_symbol, lv);
+    var value: VariableValue = undefined;
+    switch (symbol_entry.type) {
+        .t_int => {
+            value = .{ .int = 0 };
+            try locals.append(.{ .locals = 1, .locals_type = ValueType.i32 });
+        },
+        .t_float => {
+            value = .{ .float = 0.0 };
+            try locals.append(.{ .locals = 1, .locals_type = ValueType.f32 });
+        },
+        .t_bool => {
+            value = .{ .boolean = false };
+            try locals.append(.{ .locals = 1, .locals_type = ValueType.i32 });
+        },
+        .t_void => unreachable,
+    }
+    const index = try lv.add(symbol_entry.name, value);
 
+    try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.local_set));
+    try leb.writeULEB128(bytecode_writer, index + offset);
+}
+
+pub fn generatePrintStmt(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), fn_symbol: FnSymbol, lv: *VarTable) !void {
+    const bytecode_writer = bytecode.*.writer();
+    // const offset = fn_symbol.parameter_end - fn_symbol.parameter_start;
+
+    const left_idx = ast.nodes.items[node_idx].left;
+    try generateWASMCodeFromAst(ast, left_idx, source, bytecode, fn_symbol, lv);
+    const left_node = ast.nodes.items[left_idx];
+
+    try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.call));
+
+    const name: []u8 = source[left_node.loc.start..left_node.loc.end];
+
+    switch (left_node.type) {
+        .ast_int_literal, .ast_bool_literal => try bytecode.append(0x01),
+        .ast_float_literal => try bytecode.append(0x00),
+        .ast_identifier => {
+            const symbol = SymbolTable.findByName(name); //.?.type;
+            var symbol_type: FnSymbolType = undefined;
+            if (symbol == null) {
+                if (fn_symbol.parameter_end - fn_symbol.parameter_start != 0) {
+                    for (fn_symbol.parameter_start..fn_symbol.parameter_end) |i| {
+                        const parameter_name_node = FnTable.parameters.items[i].name_node;
+                        const parameter_name: []u8 = source[ast.nodes.items[parameter_name_node].loc.start..ast.nodes.items[parameter_name_node].loc.end];
+                        if (std.mem.eql(u8, name, parameter_name)) {
+                            symbol_type = FnTable.parameters.items[i].parameter_type;
+                        }
+                    }
+                }
+            } else {
+                symbol_type = symbol.?.type;
+            }
+            switch (symbol_type) {
+                .t_int, .t_bool => try bytecode.append(0x01),
+                .t_float => try bytecode.append(0x00),
+                .t_void => unreachable,
+            }
+        },
+        .ast_fn_call => {
+            const function_call_table = FnCallTable.table.items[left_node.idx];
+            const function_idx = function_call_table.name_node;
+            var out_idx: u32 = undefined;
+            if (FnTable.getFunctionIdx(function_idx, source, ast.*)) |val| {
+                out_idx = val;
+            } else |err| {
+                //TODO: Make proper error message
+                std.debug.print("[WASM CodeGen] Function not found: {s}. Err: {}\n", .{ source[left_node.loc.start..left_node.loc.end], err });
+            }
+            const return_type = FnTable.table.items[out_idx].return_type;
+            switch (return_type) {
+                .t_int, .t_bool => try bytecode.append(0x01),
+                .t_float => try bytecode.append(0x00),
+                .t_void => unreachable,
+            }
+        },
+        else => {
+            const expr_type = ExprTypeTable.table.items[left_node.idx].type;
+            switch (expr_type) {
+                .t_int, .t_bool => try bytecode.append(0x01),
+                .t_float => try bytecode.append(0x00),
+                .t_void => unreachable,
+            }
+        },
+    }
+}
+
+pub fn generateAssignStmt(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), fn_symbol: FnSymbol, lv: *VarTable) !void {
     const bytecode_writer = bytecode.*.writer();
     const offset = fn_symbol.parameter_end - fn_symbol.parameter_start;
 
+    const left = ast.nodes.items[node_idx].left;
+    const right = ast.nodes.items[node_idx].right;
+    try generateWASMCodeFromAst(ast, right, source, bytecode, fn_symbol, lv);
+    const name: []u8 = source[ast.nodes.items[left].loc.start..ast.nodes.items[left].loc.end];
+    // TODO: Add check for identifier not declared
+
+    try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.local_set));
+    try leb.writeULEB128(bytecode_writer, lv.getByName(name) + offset);
+}
+
+pub fn generateFnCall(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), fn_symbol: FnSymbol, lv: *VarTable) !void {
+    const bytecode_writer = bytecode.*.writer();
+
+    const current_node_idx = ast.nodes.items[node_idx].idx;
+    const function_call_table = FnCallTable.table.items[current_node_idx];
+    const function_idx = function_call_table.name_node;
+    const out_idx = try FnTable.getFunctionIdx(function_idx, source, ast.*);
+
+    const args = function_call_table.arguments;
+    const args_len = function_call_table.arguments_len;
+
+    for (0..args_len) |args_idx| {
+        try generateWASMCodeFromAst(ast, args[args_idx], source, bytecode, fn_symbol, lv);
+    }
+
+    try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.call));
+    try leb.writeULEB128(bytecode_writer, out_idx + 2);
+}
+
+const IfGenError = error{ OutOfMemory, FunctionNotFound };
+pub fn generateIf(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), locals: *std.ArrayList(Local), fn_symbol: FnSymbol, lv: *VarTable, depth: usize) IfGenError!void {
+    const bytecode_writer = bytecode.*.writer();
+
+    const expr_idx = ast.nodes.items[node_idx].left;
+    const if_table_idx = ast.nodes.items[node_idx].idx;
+    const if_symbol = IfTable.table.items[if_table_idx];
+
+    try generateWASMCodeFromAst(ast, expr_idx, source, bytecode, fn_symbol, lv);
+    try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.@"if"));
+    try bytecode_writer.writeByte(0x40);
+    const if_scope = MultiScopeTable.table.items[if_symbol.if_scope_idx];
+    for (if_scope.items) |if_body_idx| {
+        try generateIfScope(ast, if_body_idx, source, bytecode, locals, fn_symbol, lv, depth);
+    }
+
+    if (if_symbol.else_scope_idx != nan_u64) {
+        try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.@"else"));
+        const else_scope = MultiScopeTable.table.items[if_symbol.else_scope_idx];
+        for (else_scope.items) |else_body_idx| {
+            try generateIfScope(ast, else_body_idx, source, bytecode, locals, fn_symbol, lv, depth);
+        }
+    }
+    try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.end));
+}
+
+const WhileGenError = error{ OutOfMemory, FunctionNotFound };
+pub fn generateWhile(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), locals: *std.ArrayList(Local), fn_symbol: FnSymbol, lv: *VarTable, depth: usize) WhileGenError!void {
+    const bytecode_writer = bytecode.*.writer();
+
+    const expr_idx = ast.nodes.items[node_idx].left;
+    const while_scope_idx = ast.nodes.items[node_idx].idx;
+    const while_scope = MultiScopeTable.table.items[while_scope_idx];
+
+    try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.block));
+    try bytecode.append(0x40);
+
+    try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.loop));
+    try bytecode.append(0x40);
+
+    try generateWASMCodeFromAst(ast, expr_idx, source, bytecode, fn_symbol, lv);
+
+    // BOOL NOT
+    try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.i32_const));
+    try bytecode.append(0x01);
+    try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.i32_xor));
+
+    try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.br_if));
+    try leb.writeULEB128(bytecode_writer, @as(usize, 0x01));
+    for (while_scope.items) |while_body_idx| {
+        try generateLoopScope(ast, while_body_idx, source, bytecode, locals, fn_symbol, lv, depth);
+    }
+
+    try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.br));
+    try leb.writeULEB128(bytecode_writer, @as(usize, 0x00));
+
+    try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.end));
+    try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.end));
+}
+
+pub fn generateStmts(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), locals: *std.ArrayList(Local), fn_symbol: FnSymbol, lv: *VarTable, depth: usize) !void {
     switch (ast.nodes.items[node_idx].type) {
         .ast_var_stmt => {
-            const node = ast.nodes.items[node_idx];
-            const symbol_entry = SymbolTable.varTable.get(node.idx);
-            try generateWASMCodeFromAst(ast, symbol_entry.expr_node, source, bytecode, fn_symbol, lv);
-            var value: VariableValue = undefined;
-            switch (symbol_entry.type) {
-                .t_int => {
-                    value = .{ .int = 0 };
-                    try locals.append(.{ .locals = 1, .locals_type = ValueType.i32 });
-                },
-                .t_float => {
-                    value = .{ .float = 0.0 };
-                    try locals.append(.{ .locals = 1, .locals_type = ValueType.f32 });
-                },
-                .t_bool => {
-                    value = .{ .boolean = false };
-                    try locals.append(.{ .locals = 1, .locals_type = ValueType.i32 });
-                },
-                .t_void => unreachable,
-            }
-            const index = try lv.add(symbol_entry.name, value);
-
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.local_set));
-            try leb.writeULEB128(bytecode_writer, index + offset);
+            try generateVarStmt(ast, node_idx, source, bytecode, locals, fn_symbol, lv);
         },
         .ast_print_stmt => {
-            const left_idx = ast.nodes.items[node_idx].left;
-            try generateWASMCodeFromAst(ast, left_idx, source, bytecode, fn_symbol, lv);
-            const left_node = ast.nodes.items[left_idx];
-
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.call));
-
-            const name: []u8 = source[left_node.loc.start..left_node.loc.end];
-
-            switch (left_node.type) {
-                .ast_int_literal, .ast_bool_literal => try bytecode.append(0x01),
-                .ast_float_literal => try bytecode.append(0x00),
-                .ast_identifier => {
-                    const symbol = SymbolTable.findByName(name); //.?.type;
-                    var symbol_type: FnSymbolType = undefined;
-                    if (symbol == null) {
-                        if (fn_symbol.parameter_end - fn_symbol.parameter_start != 0) {
-                            for (fn_symbol.parameter_start..fn_symbol.parameter_end) |i| {
-                                const parameter_name_node = FnTable.parameters.items[i].name_node;
-                                const parameter_name: []u8 = source[ast.nodes.items[parameter_name_node].loc.start..ast.nodes.items[parameter_name_node].loc.end];
-                                if (std.mem.eql(u8, name, parameter_name)) {
-                                    symbol_type = FnTable.parameters.items[i].parameter_type;
-                                }
-                            }
-                        }
-                    } else {
-                        symbol_type = symbol.?.type;
-                    }
-                    switch (symbol_type) {
-                        .t_int, .t_bool => try bytecode.append(0x01),
-                        .t_float => try bytecode.append(0x00),
-                        .t_void => unreachable,
-                    }
-                },
-                .ast_fn_call => {
-                    const function_call_table = FnCallTable.table.items[left_node.idx];
-                    const function_idx = function_call_table.name_node;
-                    var out_idx: u32 = undefined;
-                    if (FnTable.getFunctionIdx(function_idx, source, ast.*)) |val| {
-                        out_idx = val;
-                    } else |err| {
-                        //TODO: Make proper error message
-                        std.debug.print("[WASM CodeGen] Function not found: {s}. Err: {}\n", .{ source[left_node.loc.start..left_node.loc.end], err });
-                    }
-                    const return_type = FnTable.table.items[out_idx].return_type;
-                    switch (return_type) {
-                        .t_int, .t_bool => try bytecode.append(0x01),
-                        .t_float => try bytecode.append(0x00),
-                        .t_void => unreachable,
-                    }
-                },
-                else => {
-                    const expr_type = ExprTypeTable.table.items[left_node.idx].type;
-                    switch (expr_type) {
-                        .t_int, .t_bool => try bytecode.append(0x01),
-                        .t_float => try bytecode.append(0x00),
-                        .t_void => unreachable,
-                    }
-                },
-            }
+            try generatePrintStmt(ast, node_idx, source, bytecode, fn_symbol, lv);
         },
         .ast_assign_stmt => {
-            const left = ast.nodes.items[node_idx].left;
-            const right = ast.nodes.items[node_idx].right;
-            try generateWASMCodeFromAst(ast, right, source, bytecode, fn_symbol, lv);
-            const name: []u8 = source[ast.nodes.items[left].loc.start..ast.nodes.items[left].loc.end];
-            // TODO: Add check for identifier not declared
-
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.local_set));
-            try leb.writeULEB128(bytecode_writer, lv.getByName(name) + offset);
+            try generateAssignStmt(ast, node_idx, source, bytecode, fn_symbol, lv);
         },
         .ast_fn_call => {
-            const current_node_idx = ast.nodes.items[node_idx].idx;
-            const function_call_table = FnCallTable.table.items[current_node_idx];
-            const function_idx = function_call_table.name_node;
-            const out_idx = try FnTable.getFunctionIdx(function_idx, source, ast.*);
+            try generateFnCall(ast, node_idx, source, bytecode, fn_symbol, lv);
+        },
+        .ast_if => {
+            try generateIf(ast, node_idx, source, bytecode, locals, fn_symbol, lv, depth + 1);
+        },
+        .ast_while => {
+            // Doc: Reason it is depth+2 instead of 1 is because wasm does block{loop{}} for defining loop and it's control flow
+            try generateWhile(ast, node_idx, source, bytecode, locals, fn_symbol, lv, depth + 2);
+        },
+        else => {},
+    }
+}
 
-            const args = function_call_table.arguments;
-            const args_len = function_call_table.arguments_len;
+pub fn generateIfScope(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), locals: *std.ArrayList(Local), fn_symbol: FnSymbol, lv: *VarTable, depth: usize) !void {
+    const bytecode_writer = bytecode.*.writer();
 
-            for (0..args_len) |args_idx| {
-                try generateWASMCodeFromAst(ast, args[args_idx], source, bytecode, fn_symbol, lv);
-            }
+    switch (ast.nodes.items[node_idx].type) {
+        .ast_var_stmt, .ast_print_stmt, .ast_assign_stmt, .ast_fn_call, .ast_if, .ast_while => {
+            try generateStmts(ast, node_idx, source, bytecode, locals, fn_symbol, lv, depth);
+        },
+        .ast_break => {
+            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.br));
+            try leb.writeULEB128(bytecode_writer, @as(usize, depth - 1));
+        },
+        .ast_continue => {
+            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.br));
+            try leb.writeULEB128(bytecode_writer, @as(usize, depth - 2));
+        },
+        else => {},
+    }
+}
 
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.call));
-            try leb.writeULEB128(bytecode_writer, out_idx + 2);
+pub fn generateLoopScope(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), locals: *std.ArrayList(Local), fn_symbol: FnSymbol, lv: *VarTable, depth: usize) !void {
+    const bytecode_writer = bytecode.*.writer();
+
+    switch (ast.nodes.items[node_idx].type) {
+        .ast_var_stmt, .ast_print_stmt, .ast_assign_stmt, .ast_fn_call, .ast_if, .ast_while => {
+            try generateStmts(ast, node_idx, source, bytecode, locals, fn_symbol, lv, depth);
+        },
+        .ast_break => {
+            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.br));
+            try leb.writeULEB128(bytecode_writer, @as(usize, depth - 1));
+        },
+        .ast_continue => {
+            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.br));
+            try leb.writeULEB128(bytecode_writer, @as(usize, depth - 2));
+        },
+        else => {},
+    }
+}
+
+pub fn generateFnScope(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), locals: *std.ArrayList(Local), fn_symbol: FnSymbol, lv: *VarTable) !void {
+    const bytecode_writer = bytecode.*.writer();
+    const depth: usize = 0;
+
+    switch (ast.nodes.items[node_idx].type) {
+        .ast_var_stmt, .ast_print_stmt, .ast_assign_stmt, .ast_fn_call, .ast_if, .ast_while => {
+            try generateStmts(ast, node_idx, source, bytecode, locals, fn_symbol, lv, depth);
         },
         .ast_fn_return => {
             const left = ast.nodes.items[node_idx].left;
             try generateWASMCodeFromAst(ast, left, source, bytecode, fn_symbol, lv);
             try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.@"return"));
-        },
-        .ast_if => {
-            const expr_idx = ast.nodes.items[node_idx].left;
-            const if_table_idx = ast.nodes.items[node_idx].idx;
-            const if_symbol = IfTable.table.items[if_table_idx];
-
-            try generateWASMCodeFromAst(ast, expr_idx, source, bytecode, fn_symbol, lv);
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.@"if"));
-            try bytecode_writer.writeByte(0x40);
-            const if_scope = MultiScopeTable.table.items[if_symbol.if_scope_idx];
-            for (if_scope.items) |if_body_idx| {
-                try generateWASMCode(ast, if_body_idx, source, bytecode, locals, fn_symbol, lv);
-            }
-
-            if (if_symbol.else_scope_idx != nan_u64) {
-                try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.@"else"));
-                const else_scope = MultiScopeTable.table.items[if_symbol.else_scope_idx];
-                for (else_scope.items) |else_body_idx| {
-                    try generateWASMCode(ast, else_body_idx, source, bytecode, locals, fn_symbol, lv);
-                }
-            }
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.end));
-        },
-        .ast_while => {
-            const expr_idx = ast.nodes.items[node_idx].left;
-            const while_scope_idx = ast.nodes.items[node_idx].idx;
-            const while_scope = MultiScopeTable.table.items[while_scope_idx];
-
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.block));
-            try bytecode.append(0x40);
-
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.loop));
-            try bytecode.append(0x40);
-
-            try generateWASMCodeFromAst(ast, expr_idx, source, bytecode, fn_symbol, lv);
-
-            // BOOL NOT
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.i32_const));
-            try bytecode.append(0x01);
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.i32_xor));
-
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.br_if));
-            try leb.writeULEB128(bytecode_writer, @as(usize, 0x01));
-            for (while_scope.items) |while_body_idx| {
-                try generateWASMCode(ast, while_body_idx, source, bytecode, locals, fn_symbol, lv);
-            }
-
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.br));
-            try leb.writeULEB128(bytecode_writer, @as(usize, 0x00));
-
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.end));
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.end));
         },
         else => {},
     }

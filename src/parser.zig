@@ -385,8 +385,8 @@ pub const Parser = struct {
         var control_type: Type = undefined;
         if (control_token.type == .tok_break) {
             control_type = .ast_break;
-        } else if (control_token.type == .tok_break) {
-            control_type = .ast_break;
+        } else if (control_token.type == .tok_continue) {
+            control_type = .ast_continue;
         } else {
             unreachable;
         }
