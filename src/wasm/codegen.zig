@@ -521,6 +521,23 @@ pub fn generateWASMCode(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std
                         .t_void => unreachable,
                     }
                 },
+                .ast_fn_call => {
+                    const function_call_table = FnCallTable.table.items[left_node.idx];
+                    const function_idx = function_call_table.name_node;
+                    var out_idx: u32 = undefined;
+                    if (FnTable.getFunctionIdx(function_idx, source, ast.*)) |val| {
+                        out_idx = val;
+                    } else |err| {
+                        //TODO: Make proper error message
+                        std.debug.print("[WASM CodeGen] Function not found: {s}. Err: {}\n", .{ source[left_node.loc.start..left_node.loc.end], err });
+                    }
+                    const return_type = FnTable.table.items[out_idx].return_type;
+                    switch (return_type) {
+                        .t_int, .t_bool => try bytecode.append(0x01),
+                        .t_float => try bytecode.append(0x00),
+                        .t_void => unreachable,
+                    }
+                },
                 else => {
                     const expr_type = ExprTypeTable.table.items[left_node.idx].type;
                     switch (expr_type) {
