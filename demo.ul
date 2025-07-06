@@ -1,6 +1,10 @@
 fn main() void {
-    var z: float = 20.0;
-    var x: float = 5;// generate x it as int and not float
-    print(z/2.0);
-    print(x);
+    var x: int = 0;
+    while (x < 10){
+        print(x);
+        if(x == 5){
+            break;
+        }
+        x = x + 1;
+    }
 }
