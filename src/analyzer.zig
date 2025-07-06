@@ -1,4 +1,6 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+
 const Ast = @import("ast.zig").Ast;
 const Node = @import("ast.zig").Node;
 const Type = @import("ast.zig").Type;
@@ -20,16 +22,16 @@ const Parser = @import("parser.zig").Parser;
 const nan_u32 = 0x7FC00000;
 const nan_u64 = 0x7FF8000000000000;
 
-pub fn analyse_type_semantic(parser: *Parser, curr_node: usize) void {
+pub fn analyse_type_semantic(parser: *Parser, allocator: Allocator, curr_node: usize) void {
     var node = &parser.ast.nodes.items[curr_node];
     const left_exist = node.left != nan_u32;
     const right_exist = node.right != nan_u32;
 
     if (left_exist) {
-        analyse_type_semantic(parser, node.left);
+        analyse_type_semantic(parser, allocator, node.left);
     }
     if (right_exist) {
-        analyse_type_semantic(parser, node.right);
+        analyse_type_semantic(parser, allocator, node.right);
     }
 
     // TODO: I forgot why I keep checking left/right exist for operations?
@@ -99,7 +101,7 @@ pub fn analyse_type_semantic(parser: *Parser, curr_node: usize) void {
                     parser.reportError(left_node.loc, "Type '{s}' declared here:\n", .{left_type.str()}, false);
                     parser.reportError(right_node.loc, "Type '{s}' declared here:\n", .{right_type.str()}, true);
                 }
-                node.idx = ExprTypeTable.appendExprType(left_type);
+                node.idx = ExprTypeTable.appendExprType(allocator, left_type);
             } else if (left_exist and !right_exist) {
                 @panic("TODO!");
             } else if (right_exist and !left_exist) {
@@ -124,7 +126,7 @@ pub fn analyse_type_semantic(parser: *Parser, curr_node: usize) void {
                     },
                     else => unreachable,
                 }
-                node.idx = ExprTypeTable.appendExprType(left_type);
+                node.idx = ExprTypeTable.appendExprType(allocator, left_type);
             }
         },
         .ast_fn_call => {
@@ -133,7 +135,7 @@ pub fn analyse_type_semantic(parser: *Parser, curr_node: usize) void {
 
             for (0..fn_call.arguments_len) |i| {
                 const argument_node_idx = fn_call.arguments[i];
-                analyse_type_semantic(parser, argument_node_idx);
+                analyse_type_semantic(parser, allocator, argument_node_idx);
             }
         },
         else => {},
@@ -268,7 +270,7 @@ pub fn analyse_bool(parser: *Parser, curr_node: u32) void {
     }
 }
 
-pub fn analyse_block(parser: *Parser, root_idx: usize) void {
+pub fn analyse_block(parser: *Parser, allocator: Allocator, root_idx: usize) void {
     const ast_node = parser.ast.nodes.items[root_idx];
     switch (ast_node.type) {
         .ast_var_stmt => {
@@ -276,23 +278,23 @@ pub fn analyse_block(parser: *Parser, root_idx: usize) void {
             const symbol_entry = SymbolTable.varTable.get(symbol_idx);
             //                    parser.analyse_bool(symbol_entry.expr_node);
             //                    _ = parser.analyse_chain_type(symbol_entry.expr_node);
-            analyse_type_semantic(parser, symbol_entry.expr_node);
+            analyse_type_semantic(parser, allocator, symbol_entry.expr_node);
         },
         .ast_print_stmt => {
             const left_idx = ast_node.left;
             //                    parser.analyse_bool(left_idx);
             //                    _ = parser.analyse_chain_type(left_idx);
-            analyse_type_semantic(parser, left_idx);
+            analyse_type_semantic(parser, allocator, left_idx);
         },
         .ast_assign_stmt => {
             const right_idx = ast_node.right;
             //                    parser.analyse_bool(right_idx);
             //                    _ = parser.analyse_chain_type(right_idx);
-            analyse_type_semantic(parser, right_idx);
+            analyse_type_semantic(parser, allocator, right_idx);
         },
         .ast_fn_return => {
             const left_idx = ast_node.left;
-            analyse_type_semantic(parser, left_idx);
+            analyse_type_semantic(parser, allocator, left_idx);
         },
         .ast_fn_call => {
             const fn_call_idx = ast_node.idx;
@@ -300,37 +302,37 @@ pub fn analyse_block(parser: *Parser, root_idx: usize) void {
 
             for (0..fn_call.arguments_len) |i| {
                 const argument_node_idx = fn_call.arguments[i];
-                analyse_type_semantic(parser, argument_node_idx);
+                analyse_type_semantic(parser, allocator, argument_node_idx);
             }
         },
         .ast_if => {
             const if_idx = ast_node.idx;
-            analyse_type_semantic(parser, ast_node.left);
+            analyse_type_semantic(parser, allocator, ast_node.left);
             const if_symbol = IfTable.table.items[if_idx];
             const if_scope = MultiScopeTable.table.items[if_symbol.if_scope_idx];
             for (if_scope.items) |idx| {
-                analyse_block(parser, idx);
+                analyse_block(parser, allocator, idx);
             }
             if (if_symbol.else_scope_idx != nan_u64) {
                 const else_scope = MultiScopeTable.table.items[if_symbol.else_scope_idx];
                 for (else_scope.items) |idx| {
-                    analyse_block(parser, idx);
+                    analyse_block(parser, allocator, idx);
                 }
             }
         },
         .ast_while => {
             const while_idx = ast_node.idx;
-            analyse_type_semantic(parser, ast_node.left);
+            analyse_type_semantic(parser, allocator, ast_node.left);
             const while_scope = MultiScopeTable.table.items[while_idx];
             for (while_scope.items) |idx| {
-                analyse_block(parser, idx);
+                analyse_block(parser, allocator, idx);
             }
         },
         else => {},
     }
 }
 
-pub fn analyze(parser: *Parser) void {
+pub fn analyze(parser: *Parser, allocator: Allocator) void {
     // Analyze
     for (parser.ast_roots.items) |root_idx| {
         const ast_node = parser.ast.nodes.items[root_idx];
@@ -340,7 +342,7 @@ pub fn analyze(parser: *Parser) void {
                 const fn_block = FnTable.table.items[fn_block_idx];
                 const scope = MultiScopeTable.table.items[fn_block.scope_idx];
                 for (scope.items) |idx| {
-                    analyse_block(parser, idx);
+                    analyse_block(parser, allocator, idx);
                 }
             },
             .ast_if => {
@@ -349,16 +351,16 @@ pub fn analyze(parser: *Parser) void {
                 //const fn_block = FnTable.table.items[fn_block_idx];
                 const if_scope = MultiScopeTable.table.items[if_symbol.if_scope_idx];
                 for (if_scope.items) |idx| {
-                    analyse_block(parser, idx);
+                    analyse_block(parser, allocator, idx);
                 }
                 if (if_symbol.else_scope_idx != nan_u64) {
                     const else_scope = MultiScopeTable.table.items[if_symbol.else_scope_idx];
                     for (else_scope.items) |idx| {
-                        analyse_block(parser, idx);
+                        analyse_block(parser, allocator, idx);
                     }
                 }
             },
-            else => analyse_block(parser, root_idx),
+            else => analyse_block(parser, allocator, root_idx),
         }
     }
 }

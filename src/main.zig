@@ -51,28 +51,18 @@ pub fn main() !void {
     std.debug.print("\n------ TOKENS ------\n", .{});
     tokenizer.print();
 
-    SymbolTable.createTables(allocator);
-    defer SymbolTable.destroyTable();
-
-    ExprTypeTable.createTable(allocator);
-    defer ExprTypeTable.destroyTable();
-
-    FnTable.createTable(allocator);
-    defer FnTable.destroyTable();
-
-    FnCallTable.createTable(allocator);
-    defer FnCallTable.destroyTable();
-
-    IfTable.createTable(allocator);
-    defer IfTable.destroyTable();
-
+    defer SymbolTable.destroyTable(allocator);
+    defer ExprTypeTable.destroyTable(allocator);
+    defer FnTable.destroyTable(allocator);
+    defer FnCallTable.destroyTable(allocator);
+    defer IfTable.destroyTable(allocator);
     defer MultiScopeTable.destroyTable(allocator);
 
     var parser = Parser.init(allocator, tokenizer);
     defer parser.deinit();
 
-    parser.parse(allocator);
-    analyzer.analyze(&parser);
+    parser.parse();
+    analyzer.analyze(&parser, allocator);
 
     std.debug.print("\n------ AST ------\n", .{});
     parser.ast.printAst(&parser.ast_roots);

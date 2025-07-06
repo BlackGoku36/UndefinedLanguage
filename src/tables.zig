@@ -1,5 +1,6 @@
 const std = @import("std");
 const Ast = @import("ast.zig").Ast;
+const Allocator = std.mem.Allocator;
 
 pub const Type = enum {
     t_int,
@@ -27,19 +28,13 @@ const VarSymbol = struct {
 };
 
 pub const SymbolTable = struct {
-    pub var varTable: std.MultiArrayList(VarSymbol) = undefined;
-    var allocator: std.mem.Allocator = undefined;
+    pub var varTable: std.MultiArrayList(VarSymbol) = .empty;
 
-    pub fn createTables(allocator_: std.mem.Allocator) void {
-        varTable = std.MultiArrayList(VarSymbol){};
-        allocator = allocator_;
-    }
-
-    pub fn destroyTable() void {
+    pub fn destroyTable(allocator: Allocator) void {
         varTable.deinit(allocator);
     }
 
-    pub fn appendVar(symbol: VarSymbol) usize {
+    pub fn appendVar(allocator: Allocator, symbol: VarSymbol) usize {
         varTable.append(allocator, symbol) catch |err| {
             std.debug.print("Unable to create entry in varTable symbol table: {}", .{err});
         };
@@ -76,14 +71,10 @@ const ExprSymbol = struct {
 };
 
 pub const ExprTypeTable = struct {
-    pub var table: std.ArrayList(ExprSymbol) = undefined;
+    pub var table: std.ArrayListUnmanaged(ExprSymbol) = .empty;
 
-    pub fn createTable(allocator: std.mem.Allocator) void {
-        table = std.ArrayList(ExprSymbol).init(allocator);
-    }
-
-    pub fn appendExprType(expr_type: Type) usize {
-        table.append(.{ .type = expr_type }) catch |err| {
+    pub fn appendExprType(allocator: Allocator, expr_type: Type) usize {
+        table.append(allocator, .{ .type = expr_type }) catch |err| {
             std.debug.print("Unable to create entry in ExprSymbol: {}", .{err});
         };
         return table.items.len - 1;
@@ -95,8 +86,8 @@ pub const ExprTypeTable = struct {
         }
     }
 
-    pub fn destroyTable() void {
-        table.deinit();
+    pub fn destroyTable(allocator: Allocator) void {
+        table.deinit(allocator);
     }
 };
 
@@ -107,14 +98,10 @@ pub const FnCallSymbol = struct {
 };
 
 pub const FnCallTable = struct {
-    pub var table: std.ArrayList(FnCallSymbol) = undefined;
+    pub var table: std.ArrayListUnmanaged(FnCallSymbol) = .empty;
 
-    pub fn createTable(allocator: std.mem.Allocator) void {
-        table = std.ArrayList(FnCallSymbol).init(allocator);
-    }
-
-    pub fn appendFunction(fn_call_symbol: FnCallSymbol) usize {
-        table.append(fn_call_symbol) catch |err| {
+    pub fn appendFunction(allocator: Allocator, fn_call_symbol: FnCallSymbol) usize {
+        table.append(allocator, fn_call_symbol) catch |err| {
             std.debug.print("Unable to create entry in FnCallTable: {}", .{err});
         };
         return table.items.len - 1;
@@ -140,8 +127,8 @@ pub const FnCallTable = struct {
         }
     }
 
-    pub fn destroyTable() void {
-        table.deinit();
+    pub fn destroyTable(allocator: Allocator) void {
+        table.deinit(allocator);
     }
 };
 
@@ -159,16 +146,11 @@ pub const FnParameterSymbol = struct {
 };
 
 pub const FnTable = struct {
-    pub var table: std.ArrayList(FnSymbol) = undefined;
-    pub var parameters: std.ArrayList(FnParameterSymbol) = undefined;
+    pub var table: std.ArrayListUnmanaged(FnSymbol) = .empty;
+    pub var parameters: std.ArrayListUnmanaged(FnParameterSymbol) = .empty;
 
-    pub fn createTable(allocator: std.mem.Allocator) void {
-        table = std.ArrayList(FnSymbol).init(allocator);
-        parameters = std.ArrayList(FnParameterSymbol).init(allocator);
-    }
-
-    pub fn appendFunction(fn_symbol: FnSymbol) usize {
-        table.append(fn_symbol) catch |err| {
+    pub fn appendFunction(allocator: Allocator, fn_symbol: FnSymbol) usize {
+        table.append(allocator, fn_symbol) catch |err| {
             std.debug.print("Unable to create entry in FnTable: {}", .{err});
         };
         return table.items.len - 1;
@@ -218,9 +200,9 @@ pub const FnTable = struct {
         }
     }
 
-    pub fn destroyTable() void {
-        table.deinit();
-        parameters.deinit();
+    pub fn destroyTable(allocator: Allocator) void {
+        table.deinit(allocator);
+        parameters.deinit(allocator);
     }
 };
 
@@ -230,14 +212,10 @@ pub const IfSymbol = struct {
 };
 
 pub const IfTable = struct {
-    pub var table: std.ArrayList(IfSymbol) = undefined;
+    pub var table: std.ArrayListUnmanaged(IfSymbol) = .empty;
 
-    pub fn createTable(allocator: std.mem.Allocator) void {
-        table = std.ArrayList(IfSymbol).init(allocator);
-    }
-
-    pub fn appendIf(if_symbol: IfSymbol) usize {
-        table.append(if_symbol) catch |err| {
+    pub fn appendIf(allocator: Allocator, if_symbol: IfSymbol) usize {
+        table.append(allocator, if_symbol) catch |err| {
             std.debug.print("Unable to create entry in FnTable: {}", .{err});
         };
         return table.items.len - 1;
@@ -251,8 +229,8 @@ pub const IfTable = struct {
         }
     }
 
-    pub fn destroyTable() void {
-        table.deinit();
+    pub fn destroyTable(allocator: Allocator) void {
+        table.deinit(allocator);
     }
 };
 
