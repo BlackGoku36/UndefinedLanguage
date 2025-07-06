@@ -128,13 +128,15 @@ pub const Tokenizer = struct {
     start: u32 = 0,
     current: u32 = 0,
     line: u32 = 0,
-    pool: std.ArrayList(Token),
+    pool: std.ArrayListUnmanaged(Token),
+    allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, source: []u8, source_name: []const u8) Tokenizer {
         const tokenizer: Tokenizer = .{
             .source = source,
             .source_name = source_name,
-            .pool = std.ArrayList(Token).init(allocator),
+            .pool = .empty,
+            .allocator = allocator,
         };
         return tokenizer;
     }
@@ -162,7 +164,7 @@ pub const Tokenizer = struct {
     }
 
     fn add_token(tokenizer: *Tokenizer, token_type: TokenType) void {
-        tokenizer.pool.append(.{ .type = token_type, .loc = .{ .start = tokenizer.start, .end = tokenizer.current, .line = tokenizer.line } }) catch |err| {
+        tokenizer.pool.append(tokenizer.allocator, .{ .type = token_type, .loc = .{ .start = tokenizer.start, .end = tokenizer.current, .line = tokenizer.line } }) catch |err| {
             std.debug.print("Error while adding token: {any}\n", .{err});
         };
     }
@@ -301,6 +303,6 @@ pub const Tokenizer = struct {
     }
 
     pub fn deinit(tokenizer: *Tokenizer) void {
-        tokenizer.pool.deinit();
+        tokenizer.pool.deinit(tokenizer.allocator);
     }
 };

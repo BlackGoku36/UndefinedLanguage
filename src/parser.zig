@@ -29,8 +29,8 @@ pub const Parser = struct {
     ast: Ast,
     source: []u8,
     source_name: []const u8,
-    token_pool: std.ArrayList(Token),
-    ast_roots: std.ArrayList(u32),
+    token_pool: std.ArrayListUnmanaged(Token),
+    ast_roots: std.ArrayListUnmanaged(u32),
     allocator: Allocator,
 
     pub fn init(allocator: std.mem.Allocator, _tokenizer: Tokenizer) Parser {
@@ -41,13 +41,13 @@ pub const Parser = struct {
             .source = _tokenizer.source,
             .source_name = _tokenizer.source_name,
             .token_pool = _tokenizer.pool,
-            .ast_roots = std.ArrayList(u32).init(allocator),
+            .ast_roots = .empty,
         };
     }
 
     pub fn deinit(parser: *Parser) void {
         parser.ast.deinit();
-        parser.ast_roots.deinit();
+        parser.ast_roots.deinit(parser.allocator);
     }
 
     fn getNode(parser: *Parser, index: u32) Node {
@@ -511,7 +511,7 @@ pub const Parser = struct {
                     unreachable;
                 },
                 .tok_fn => {
-                    parser.ast_roots.append(parser.functionBlock()) catch |err| {
+                    parser.ast_roots.append(parser.allocator, parser.functionBlock()) catch |err| {
                         std.debug.print("Unable to append function block ast node to root list: {}", .{err});
                     };
                 },

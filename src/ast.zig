@@ -102,16 +102,18 @@ pub const Node = struct {
 };
 
 pub const Ast = struct {
-    nodes: std.ArrayList(Node),
+    nodes: std.ArrayListUnmanaged(Node),
+    allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) Ast {
         return .{
-            .nodes = std.ArrayList(Node).init(allocator),
+            .nodes = .empty,
+            .allocator = allocator,
         };
     }
 
     pub fn deinit(ast: *Ast) void {
-        ast.nodes.deinit();
+        ast.nodes.deinit(ast.allocator);
     }
 
     pub fn setNodeIdx(ast: *Ast, atIndex: usize, index: usize) void {
@@ -120,7 +122,7 @@ pub const Ast = struct {
 
     pub fn addNode(ast: *Ast, node_type: Type, idx: usize, left: u32, right: u32, loc: LocInfo) u32 {
         const node_idx: u32 = @as(u32, @intCast(ast.nodes.items.len));
-        ast.nodes.append(.{ .type = node_type, .idx = idx, .left = left, .right = right, .loc = loc }) catch |err| {
+        ast.nodes.append(ast.allocator, .{ .type = node_type, .idx = idx, .left = left, .right = right, .loc = loc }) catch |err| {
             std.debug.print("Error while adding node: {any}", .{err});
         };
         return node_idx;
@@ -240,7 +242,7 @@ pub const Ast = struct {
         }
     }
 
-    pub fn printAst(ast: *Ast, ast_roots: *const std.ArrayList(u32)) void {
+    pub fn printAst(ast: *Ast, ast_roots: *const std.ArrayListUnmanaged(u32)) void {
         for (ast_roots.items) |root_idx| {
             const ast_node = ast.nodes.items[root_idx];
             switch (ast_node.type) {
