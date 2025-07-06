@@ -1,0 +1,7 @@
+fn foo() float {
+    return 21.0;
+}
+
+fn main() void {
+    print(foo());
+}

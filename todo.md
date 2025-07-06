@@ -1,10 +1,11 @@
 
 # TODO
 
-- Implement parser for function parameters and function return type
-- Implement WASM codegen for function parameters and return
-- Implement parser and WASM codegen for branches
-- Implement parser and WASM codegen for loops
+- Types: Struct, Enum, Array, String.
+
+- Functions: Foreign Function/Variable Interface, to interact with JS without any hardcoding.
+
+- Loops: For loop. Also break and continue of course.
 
 ## Bugs in compiler
 
