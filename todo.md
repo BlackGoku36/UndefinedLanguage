@@ -12,15 +12,5 @@
 ```
 var x: float = 5;// generate x it as int and not float
 ```
-PARSER: The 5 is parsed as int instead of float
-
-2.
-```
-print(z/2.0); // this doesn't work (give false negative) ;(
-```
-IDK: Gives this error
-```
-thread 245479 panic: index out of bounds: index 2143289344, len 0
-/--/--/UndefinedLanguage/src/wasm/codegen.zig:264:56: 0x10040a6e7 in generateWASMCodeFromAst (UndefinedLanguage)
-            const expr_type = ExprTypeTable.table.items[ast.nodes.items[node_idx].idx].type;
-```
+PARSER: The 5 is parsed as int instead of float.
+CodeGen: false positive. It generate the code treating it as int, when it should generate float.

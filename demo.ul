@@ -1,7 +1,6 @@
-fn foo() float {
-    return 21.0;
-}
-
 fn main() void {
-    print(foo());
+    var z: float = 20.0;
+    var x: float = 5;// generate x it as int and not float
+    print(z/2.0);
+    print(x);
 }
