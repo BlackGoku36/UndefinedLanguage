@@ -355,6 +355,9 @@ pub const Parser = struct {
                 .tok_print => {
                     try scope.append(parser.allocator, parser.printStatement());
                 },
+                .tok_return => {
+                    try scope.append(parser.allocator, parser.functionReturn());
+                },
                 .tok_if => {
                     try scope.append(parser.allocator, parser.ifStatement());
                 },

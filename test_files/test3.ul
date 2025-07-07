@@ -11,3 +11,7 @@ fn main() void {
 fn printInt(a: int) void {
     print(a);
 }
+
+// Expected Output:
+// 3
+// 4

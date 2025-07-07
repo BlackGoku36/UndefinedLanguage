@@ -9,3 +9,5 @@ fn main() void {
         print(3);
     }
 }
+
+// Expected Output: 5

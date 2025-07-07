@@ -5,3 +5,5 @@ fn foo() float {
 fn main() void {
     print(foo());
 }
+
+// Expected Output: 21

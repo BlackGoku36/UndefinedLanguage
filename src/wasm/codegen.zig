@@ -623,6 +623,8 @@ pub fn generateWhile(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.Ar
 }
 
 pub fn generateStmts(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), locals: *std.ArrayList(Local), fn_symbol: FnSymbol, lv: *VarTable, depth: usize) !void {
+    const bytecode_writer = bytecode.*.writer();
+
     switch (ast.nodes.items[node_idx].type) {
         .ast_var_stmt => {
             try generateVarStmt(ast, node_idx, source, bytecode, locals, fn_symbol, lv);
@@ -643,6 +645,11 @@ pub fn generateStmts(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.Ar
             // Doc: Reason it is depth+2 instead of 1 is because wasm does block{loop{}} for defining loop and it's control flow
             try generateWhile(ast, node_idx, source, bytecode, locals, fn_symbol, lv, 2);
         },
+        .ast_fn_return => {
+            const left = ast.nodes.items[node_idx].left;
+            try generateWASMCodeFromAst(ast, left, source, bytecode, fn_symbol, lv);
+            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.@"return"));
+        },
         else => {},
     }
 }
@@ -651,7 +658,7 @@ pub fn generateIfScope(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.
     const bytecode_writer = bytecode.*.writer();
 
     switch (ast.nodes.items[node_idx].type) {
-        .ast_var_stmt, .ast_print_stmt, .ast_assign_stmt, .ast_fn_call, .ast_if, .ast_while => {
+        .ast_var_stmt, .ast_print_stmt, .ast_assign_stmt, .ast_fn_call, .ast_if, .ast_while, .ast_fn_return => {
             try generateStmts(ast, node_idx, source, bytecode, locals, fn_symbol, lv, depth);
         },
         .ast_break => {
@@ -670,7 +677,7 @@ pub fn generateLoopScope(ast: *Ast, node_idx: usize, source: []u8, bytecode: *st
     const bytecode_writer = bytecode.*.writer();
 
     switch (ast.nodes.items[node_idx].type) {
-        .ast_var_stmt, .ast_print_stmt, .ast_assign_stmt, .ast_fn_call, .ast_if, .ast_while => {
+        .ast_var_stmt, .ast_print_stmt, .ast_assign_stmt, .ast_fn_call, .ast_if, .ast_while, .ast_fn_return => {
             try generateStmts(ast, node_idx, source, bytecode, locals, fn_symbol, lv, depth);
         },
         .ast_break => {
@@ -686,17 +693,11 @@ pub fn generateLoopScope(ast: *Ast, node_idx: usize, source: []u8, bytecode: *st
 }
 
 pub fn generateFnScope(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.ArrayList(Inst), locals: *std.ArrayList(Local), fn_symbol: FnSymbol, lv: *VarTable) !void {
-    const bytecode_writer = bytecode.*.writer();
     const depth: usize = 0;
 
     switch (ast.nodes.items[node_idx].type) {
-        .ast_var_stmt, .ast_print_stmt, .ast_assign_stmt, .ast_fn_call, .ast_if, .ast_while => {
+        .ast_var_stmt, .ast_print_stmt, .ast_assign_stmt, .ast_fn_call, .ast_if, .ast_while, .ast_fn_return => {
             try generateStmts(ast, node_idx, source, bytecode, locals, fn_symbol, lv, depth);
-        },
-        .ast_fn_return => {
-            const left = ast.nodes.items[node_idx].left;
-            try generateWASMCodeFromAst(ast, left, source, bytecode, fn_symbol, lv);
-            try leb.writeULEB128(bytecode_writer, @intFromEnum(OpCode.@"return"));
         },
         else => {},
     }
