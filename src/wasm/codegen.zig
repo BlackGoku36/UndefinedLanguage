@@ -641,7 +641,7 @@ pub fn generateStmts(ast: *Ast, node_idx: usize, source: []u8, bytecode: *std.Ar
         },
         .ast_while => {
             // Doc: Reason it is depth+2 instead of 1 is because wasm does block{loop{}} for defining loop and it's control flow
-            try generateWhile(ast, node_idx, source, bytecode, locals, fn_symbol, lv, depth + 2);
+            try generateWhile(ast, node_idx, source, bytecode, locals, fn_symbol, lv, 2);
         },
         else => {},
     }
